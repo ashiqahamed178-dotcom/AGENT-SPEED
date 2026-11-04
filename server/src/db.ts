@@ -49,6 +49,7 @@ function postgresDatabase(connectionString: string): Database {
 
 async function embeddedDatabase(): Promise<Database> {
   const { PGlite } = await import("@electric-sql/pglite");
+  const { vector } = await import("@electric-sql/pglite-pgvector");
   let dataDir: string | undefined;
 
   // Tests use a fresh in-memory database, so they can never touch real data.
@@ -57,7 +58,7 @@ async function embeddedDatabase(): Promise<Database> {
     mkdirSync(dataDir, { recursive: true });
   }
 
-  const engine = new PGlite(dataDir);
+  const engine = new PGlite({ dataDir, extensions: { vector } });
 
   return {
     async query<T>(sql: string, params: unknown[] = []) {
@@ -156,6 +157,54 @@ const migrations: { id: string; sql: string }[] = [
         created_at timestamptz NOT NULL DEFAULT now()
       );
       CREATE INDEX payment_requests_user_idx ON payment_requests (user_id, created_at);
+    `
+  },
+  {
+    // One agreement has few clauses, so searching them directly is fast and
+    // exact. The escrow_id index is what matters, and it also keeps each search
+    // inside a single agreement.
+    id: "002_agreement_clauses",
+    sql: `
+      CREATE EXTENSION IF NOT EXISTS vector;
+
+      CREATE TABLE agreement_clauses (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        escrow_id uuid NOT NULL REFERENCES escrows (id),
+        position integer NOT NULL,
+        text text NOT NULL,
+        start_offset integer NOT NULL,
+        end_offset integer NOT NULL,
+        embedding vector(${config.llm.embeddingDimensions}) NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (escrow_id, position)
+      );
+    `
+  },
+  {
+    id: "003_agent_runs",
+    sql: `
+      CREATE TABLE agent_runs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        escrow_id uuid NOT NULL REFERENCES escrows (id),
+        requested_by uuid NOT NULL REFERENCES users (id),
+        status text NOT NULL CHECK (status IN (
+          'running', 'pending_approval', 'no_action',
+          'approved', 'declined', 'failed'
+        )),
+        escrow_status_at_start text NOT NULL,
+        proposed_action text CHECK (proposed_action IN ('release', 'refund', 'dispute', 'none')),
+        reasoning text,
+        risks jsonb,
+        citations jsonb,
+        rejected_citations integer NOT NULL DEFAULT 0,
+        blocked_by text,
+        trace jsonb,
+        error text,
+        decided_by uuid REFERENCES users (id),
+        decided_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX agent_runs_escrow_idx ON agent_runs (escrow_id, created_at);
     `
   }
 ];
