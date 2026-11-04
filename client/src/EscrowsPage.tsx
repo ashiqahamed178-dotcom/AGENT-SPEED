@@ -29,6 +29,11 @@ export function EscrowsPage({ user }: { user: User }) {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  // A newly opened page starts at the top.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [selectedId]);
+
   const selected = escrows.find((escrow) => escrow.id === selectedId);
 
   if (selected) {

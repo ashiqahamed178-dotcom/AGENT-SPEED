@@ -59,7 +59,8 @@ export const CASES: EvalCase[] = [
         answerContains: ["refund"],
         answerable: true
       },
-      { question: "Which court handles a legal claim?", answerable: false }
+      { question: "Which court handles a legal claim?", answerable: false },
+      { question: "Which country's law applies to this agreement?", answerable: false }
     ]
   },
   {
@@ -510,7 +511,9 @@ export const CASES: EvalCase[] = [
         clauseContains: "20 February 2027",
         answerContains: ["20 february"],
         answerable: true
-      }
+      },
+      { question: "Which country's law applies to this agreement?", answerable: false },
+      { question: "Who pays the bank transfer fees?", answerable: false }
     ]
   },
   {
