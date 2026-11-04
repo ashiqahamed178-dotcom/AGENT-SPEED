@@ -29,9 +29,9 @@ RUN npm ci && npm run build && rm -rf node_modules
 WORKDIR /app/server
 RUN npm ci && npm run build && npm prune --omit=dev
 
-# Hugging Face runs containers as user 1000.
-RUN useradd -m -u 1000 appuser && chown -R appuser /opt/ollama
-USER appuser
+# Hugging Face runs containers as user 1000, which is "node" in this image.
+RUN chown -R node /opt/ollama
+USER node
 
 ENV NODE_ENV=production
 ENV PORT=7860
