@@ -127,3 +127,63 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs agentspend || true
+
+  no-key-deployment:
+    # Builds the Hugging Face image, with the model inside it, and asks a real
+    # question through the running app. This proves the path that needs no API key.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: agentspend
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image from this commit's branch
+        run: |
+          docker build -t agentspend-hf \
+            --build-arg REPO_URL=https://github.com/${{ github.repository }}.git \
+            --build-arg BRANCH=${{ github.ref_name }} \
+            deploy/huggingface
+      - name: Start the container
+        run: |
+          docker run -d --name agentspend-hf --network host \
+            -e DATABASE_URL=postgres://postgres:ci-only-password@localhost:5432/agentspend \
+            -e JWT_SECRET=ci-only-secret-ci-only-secret-ci-only-secret \
+            agentspend-hf
+      - name: Ask a real question through the app
+        run: |
+          base=http://localhost:7860
+          for attempt in $(seq 1 60); do
+            curl -fsS "$base/api/health" && break
+            sleep 2
+          done
+          curl -fsS "$base/" | grep -q '<div id="root">'
+          json='content-type: application/json'
+          curl -fsS -D buyer.txt -H "$json" -o /dev/null "$base/api/auth/register" \
+            -d '{"email":"ci-buyer@example.test","name":"CI Buyer","password":"ci-only-password-1"}'
+          curl -fsS -H "$json" -o /dev/null "$base/api/auth/register" \
+            -d '{"email":"ci-seller@example.test","name":"CI Seller","password":"ci-only-password-1"}'
+          # The session cookie is for HTTPS only, so pass it by hand on this local address.
+          token=$(grep -i '^set-cookie:' buyer.txt | sed -E 's/^[^:]+: *([^;]+).*/\1/')
+          id=$(curl -fsS -H "cookie: $token" -H "$json" "$base/api/escrows" \
+            -d '{"sellerEmail":"ci-seller@example.test","amount":250,"currency":"USDC","agreementText":"1. Delivery. The seller must deliver the website by 30 November 2026.\n2. Refunds. If the seller misses the deadline, the buyer may request a full refund."}' \
+            | jq -r .id)
+          answer=$(curl -fsS --max-time 900 -H "cookie: $token" -H "$json" "$base/api/escrows/$id/ask" \
+            -d '{"question":"What happens if the seller misses the deadline?"}')
+          echo "$answer" | jq '{answerable, answer, refusedBy, model}'
+          test "$(echo "$answer" | jq -r .model)" = "llama3.2:3b"
+          test "$(echo "$answer" | jq -r .success)" = "true"
+      - name: Container logs
+        if: always()
+        run: docker logs agentspend-hf || true

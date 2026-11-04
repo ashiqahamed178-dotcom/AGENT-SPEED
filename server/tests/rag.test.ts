@@ -22,7 +22,7 @@ function fakeEmbedding(text: string): number[] {
   return vector;
 }
 
-function mockModel(reply: () => unknown) {
+function mockModel(reply: () => unknown, supportReply: unknown = { supports: true }) {
   const chatBodies: { messages: { content: string }[] }[] = [];
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
@@ -36,9 +36,12 @@ function mockModel(reply: () => unknown) {
     }
 
     chatBodies.push(body);
+    const isSupportCheck = String(body.messages[0].content).includes("citation checker");
     return {
       ok: true,
-      json: async () => ({ message: { content: JSON.stringify(reply()) } })
+      json: async () => ({
+        message: { content: JSON.stringify(isSupportCheck ? supportReply : reply()) }
+      })
     } as Response;
   });
 
@@ -174,6 +177,47 @@ describe("POST /api/escrows/:id/ask", () => {
     expect(response.body.answer).not.toContain("50%");
     expect(response.body.citations).toEqual([]);
     expect(response.body.rejectedCitations).toBe(1);
+  });
+
+  it("refuses a real quote that doesn't support the answer", async () => {
+    const escrow = await createEscrow(buyer, seller, AGREEMENT);
+    const realQuoteWrongAnswer = () => ({
+      answerable: true,
+      answer: "German law applies.",
+      citations: [{ clauseId: "C3", quote: "the buyer may request a full refund" }]
+    });
+
+    for (const supportReply of [{ supports: false }, "not json", { unexpected: true }]) {
+      mockModel(realQuoteWrongAnswer, supportReply);
+
+      const response = await buyer
+        .post(`/api/escrows/${escrow.id}/ask`)
+        .send({ question: "Which country's law applies?" });
+
+      expect(response.status).toBe(200);
+      expect(response.body.answerable).toBe(false);
+      expect(response.body.answer).not.toContain("German");
+      expect(response.body.citations).toEqual([]);
+      expect(response.body.refusedBy).toBe("support_check");
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("refuses an answer that admits it is guessing, without another model call", async () => {
+    const escrow = await createEscrow(buyer, seller, AGREEMENT);
+    const chatBodies = mockModel(() => ({
+      answerable: true,
+      answer: "The law is not explicitly stated, but this implies the arbiter's country.",
+      citations: [{ clauseId: "C3", quote: "the buyer may request a full refund" }]
+    }));
+
+    const response = await buyer
+      .post(`/api/escrows/${escrow.id}/ask`)
+      .send({ question: "Which country's law applies?" });
+
+    expect(response.body.answerable).toBe(false);
+    expect(response.body.refusedBy).toBe("hedged_answer");
+    expect(chatBodies).toHaveLength(1);
   });
 
   it("refuses an answer with no citations", async () => {

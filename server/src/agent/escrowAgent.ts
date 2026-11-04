@@ -39,6 +39,9 @@ export type TraceStep = {
 
 export type AgentResult = {
   proposedAction: EscrowAction | "none";
+  // What the model asked for before the code checks, kept for evaluation.
+  modelSuggestion: string;
+  toolCalls: number;
   reasoning: string;
   risks: string[];
   citations: VerifiedCitation[];
@@ -280,6 +283,8 @@ function guard(state: State): Partial<State> {
   return {
     result: {
       ...checked,
+      modelSuggestion: draft.proposedAction,
+      toolCalls: state.toolCalls,
       reasoning: draft.reasoning,
       risks: draft.risks,
       trace: []

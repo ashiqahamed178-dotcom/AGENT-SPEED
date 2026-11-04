@@ -91,6 +91,19 @@ function handled(work: (req: Request, res: Response) => Promise<unknown>) {
   };
 }
 
+// A run lives inside the server process, so a restart ends it. Marking it failed
+// on startup means nobody waits forever, and the person can simply start a new
+// review. Nothing is lost, because a run can't change an escrow by itself.
+export async function failInterruptedRuns() {
+  const result = await db.query(
+    `UPDATE agent_runs
+     SET status = 'failed', error = 'The server restarted during this review. Please start a new one.'
+     WHERE status = 'running'
+     RETURNING id`
+  );
+  return result.rows.length;
+}
+
 const startLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,

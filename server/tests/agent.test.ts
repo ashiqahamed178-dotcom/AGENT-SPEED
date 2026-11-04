@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyGuards } from "../src/agent/escrowAgent";
+import { failInterruptedRuns } from "../src/agent/routes";
+import { db } from "../src/db";
 import { createArbiter, createEscrow, createUser } from "./helpers";
 import type { Session } from "./helpers";
 
@@ -407,5 +409,34 @@ describe("applyGuards", () => {
 
     expect(result.proposedAction).toBe("none");
     expect(result.blockedBy).toBeNull();
+  });
+});
+
+describe("Interrupted agent runs", () => {
+  it("marks a run left running by a restart as failed, and leaves others alone", async () => {
+    const buyer = await createUser("Restart Buyer");
+    const seller = await createUser("Restart Seller");
+    const escrow = await createEscrow(buyer, seller, AGREEMENT);
+
+    const inserted = await db.query<{ id: string; status: string }>(
+      `INSERT INTO agent_runs (escrow_id, requested_by, status, escrow_status_at_start)
+       SELECT id, buyer_id, s.status, 'created'
+       FROM escrows, (VALUES ('running'), ('pending_approval')) AS s(status)
+       WHERE id = $1
+       RETURNING id, status`,
+      [escrow.id]
+    );
+
+    expect(await failInterruptedRuns()).toBeGreaterThanOrEqual(1);
+
+    const runs = await buyer.get(`/api/escrows/${escrow.id}/agent-runs`);
+    const statusOf = (original: string) =>
+      runs.body.find(
+        (run: { id: string }) => run.id === inserted.rows.find((row) => row.status === original)?.id
+      );
+
+    expect(statusOf("running").status).toBe("failed");
+    expect(statusOf("running").error).toContain("restarted");
+    expect(statusOf("pending_approval").status).toBe("pending_approval");
   });
 });

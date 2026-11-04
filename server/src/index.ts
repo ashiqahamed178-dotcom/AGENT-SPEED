@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { join } from "node:path";
 import { z } from "zod";
-import agentRouter from "./agent/routes";
+import agentRouter, { failInterruptedRuns } from "./agent/routes";
 import { analyzeAgreement, sendAnalysisError } from "./aiAnalysis";
 import authRouter, { requireAuth } from "./auth";
 import type { User } from "./auth";
@@ -36,8 +36,33 @@ const aiLimiter = rateLimit({
   message: { error: "Too many AI requests. Please try again later." }
 });
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", app: "AgentSpend", ai: activeModel() });
+// One line per request, so a hosting provider's logs can show errors and slow
+// calls. It records no bodies, query strings or cookies.
+if (!config.isTest) {
+  app.use((req, res, next) => {
+    const started = Date.now();
+    res.on("finish", () => {
+      console.log(
+        JSON.stringify({
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          ms: Date.now() - started
+        })
+      );
+    });
+    next();
+  });
+}
+
+// Reports unhealthy when the database can't be reached, so the host can notice.
+app.get("/api/health", async (_req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.json({ status: "ok", app: "AgentSpend", ai: activeModel() });
+  } catch {
+    res.status(503).json({ status: "unavailable", app: "AgentSpend" });
+  }
 });
 
 app.use("/api/auth", authRouter);
@@ -179,6 +204,12 @@ app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
 if (!config.isTest) {
   app.listen(config.port, () => {
     console.log(`AgentSpend API running at http://localhost:${config.port}`);
+
+    failInterruptedRuns()
+      .then((count) => {
+        if (count > 0) console.log(`Marked ${count} interrupted agent run(s) as failed.`);
+      })
+      .catch((error: unknown) => console.error("Could not check for interrupted agent runs:", error));
   });
 }
 

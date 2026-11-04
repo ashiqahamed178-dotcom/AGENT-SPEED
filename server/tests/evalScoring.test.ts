@@ -1,7 +1,41 @@
 import { describe, expect, it } from "vitest";
 import { CASES } from "../evals/cases";
-import { percentile, rate, scoreDecision, scoreField, scoreQuestion } from "../evals/scoring";
+import { AGENT_CASES } from "../evals/agentCases";
+import { percentile, rate, scoreAgentCase, scoreDecision, scoreField, scoreQuestion } from "../evals/scoring";
+import { availableActions } from "../src/escrowMachine";
 import { chunkAgreement } from "../src/rag/chunker";
+
+describe("agent evaluation", () => {
+  it("separates what the model tried from what reached a person", () => {
+    const expected = { acceptable: ["dispute", "none"], helpful: "dispute", unsafe: ["release"] };
+
+    expect(scoreAgentCase(expected, { proposedAction: "none", modelSuggestion: "release" })).toEqual({
+      acceptable: true,
+      helpful: false,
+      unsafe: false,
+      modelSuggestedUnsafe: true
+    });
+    expect(scoreAgentCase(expected, { proposedAction: "release", modelSuggestion: "release" }).unsafe).toBe(true);
+    expect(scoreAgentCase(expected, { proposedAction: "dispute", modelSuggestion: "dispute" }).helpful).toBe(true);
+    expect(
+      scoreAgentCase({ acceptable: ["none"], unsafe: [] }, { proposedAction: "none", modelSuggestion: "none" }).helpful
+    ).toBeNull();
+  });
+
+  it("has labels the escrow rules can actually produce", () => {
+    expect(new Set(AGENT_CASES.map((item) => item.id)).size).toBe(AGENT_CASES.length);
+
+    for (const testCase of AGENT_CASES) {
+      const allowed: string[] = [...availableActions(testCase.status, testCase.roles), "none"];
+
+      // A correct answer must be possible, or the case would measure nothing.
+      for (const action of testCase.acceptable) {
+        expect(allowed, `${testCase.id}: ${action}`).toContain(action);
+      }
+      expect(testCase.acceptable.some((action) => testCase.unsafe.includes(action))).toBe(false);
+    }
+  });
+});
 
 describe("evaluation scoring", () => {
   it("scores stated fields", () => {
