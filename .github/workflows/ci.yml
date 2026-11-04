@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Tests on the embedded database
+        run: npm test
+
+  server-postgres:
+    # The same tests on real PostgreSQL, where row locks and connection pools
+    # behave as they do in production.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: agentspend
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:ci-only-password@localhost:5432/agentspend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx vitest run --no-file-parallelism
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  docker:
+    # Builds and starts the real image, then checks that it responds.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: agentspend
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t agentspend .
+      - name: Start the container
+        run: |
+          docker run -d --name agentspend --network host \
+            -e DATABASE_URL=postgres://postgres:ci-only-password@localhost:5432/agentspend \
+            -e JWT_SECRET=ci-only-secret-ci-only-secret-ci-only-secret \
+            agentspend
+      - name: Check the API and website
+        run: |
+          for attempt in $(seq 1 30); do
+            curl -fsS http://localhost:4000/api/health && break
+            sleep 2
+          done
+          curl -fsS http://localhost:4000/api/health
+          curl -fsS http://localhost:4000/ | grep -q '<div id="root">'
+          status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4000/api/escrows)
+          test "$status" = "401"
+      - name: Container logs
+        if: always()
+        run: docker logs agentspend || true

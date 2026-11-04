@@ -1,8 +1,14 @@
-﻿node_modules/
-dist/
+﻿# Secrets
 .env
 .env.*
 !.env.example
-server/data/
+
+# Dependencies and build output
+node_modules/
+dist/
 coverage/
+
+# Local data, including the embedded development database
+server/data/
+
 *.log
