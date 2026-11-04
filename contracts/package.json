@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "hardhat build",
-    "test": "hardhat test"
+    "test": "hardhat test",
+    "demo": "hardhat run scripts/demo.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.1.9",

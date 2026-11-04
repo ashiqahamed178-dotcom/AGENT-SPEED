@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { z } from "zod";
 import { activeModel, chatJson, LlmUnavailableError } from "./llm";
+import { looksLikePromptInjection } from "./promptInjection";
 
 export const AnalysisSchema = z.object({
   summary: z.string(),
@@ -156,13 +157,18 @@ export type TransactionContext = {
 };
 
 // Code has the final say on the most dangerous recommendation. Release can only
-// be suggested once a delivery exists and the escrow is under review, whatever
-// the model or the text it read says.
+// be suggested once a delivery exists and the escrow is under review, and never
+// when the text appears to be giving orders to the AI.
 export function applyReleaseGuard(
   analysis: Analysis,
-  context: Pick<TransactionContext, "currentStatus" | "evidence">
+  context: Pick<TransactionContext, "currentStatus" | "evidence" | "agreementText">
 ) {
-  const allowed = context.currentStatus === "under_review" && context.evidence.length > 0;
+  const manipulated = looksLikePromptInjection(
+    context.agreementText,
+    ...context.evidence.map((item) => item.description)
+  );
+  const allowed =
+    context.currentStatus === "under_review" && context.evidence.length > 0 && !manipulated;
 
   if (analysis.recommendation !== "release" || allowed) {
     return { analysis, guardApplied: false };
@@ -173,7 +179,7 @@ export function applyReleaseGuard(
     analysis: {
       ...analysis,
       recommendation: "review" as const,
-      reasoning: `${analysis.reasoning} [Safety rule: the AI suggested release, but release requires delivery evidence and an escrow under review, so this was changed to review.]`
+      reasoning: `${analysis.reasoning} [Safety rule: the AI suggested release, but release requires delivery evidence, an escrow under review, and text that doesn't try to instruct the AI, so this was changed to review.]`
     }
   };
 }

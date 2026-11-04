@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { keccak256 } from "js-sha3";
 import { z } from "zod";
 import { analyzeTransaction, sendAnalysisError } from "./aiAnalysis";
 import type { User } from "./auth";
@@ -111,6 +112,9 @@ export async function toResponse(row: EscrowRow, user: User, database: Queryable
     amount: Number(row.amount),
     currency: row.currency,
     agreementText: row.agreement_text,
+    // The same fingerprint the smart contract stores, so anyone can check that
+    // a deal on-chain refers to exactly this agreement text.
+    agreementHash: `0x${keccak256(row.agreement_text)}`,
     status: row.status,
     yourRoles: roles,
     availableActions: availableActions(row.status, roles),

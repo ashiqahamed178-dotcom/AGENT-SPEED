@@ -22,8 +22,11 @@ export function EscrowsPage({ user }: { user: User }) {
     }
   }, []);
 
+  // The other party can act at any time, so keep the page up to date.
   useEffect(() => {
     void refresh();
+    const interval = window.setInterval(() => void refresh(), 10_000);
+    return () => window.clearInterval(interval);
   }, [refresh]);
 
   const selected = escrows.find((escrow) => escrow.id === selectedId);

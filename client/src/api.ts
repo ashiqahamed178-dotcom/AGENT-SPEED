@@ -26,6 +26,7 @@ export type Escrow = {
   amount: number;
   currency: string;
   agreementText: string;
+  agreementHash: string;
   status: string;
   yourRoles: string[];
   availableActions: EscrowAction[];

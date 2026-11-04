@@ -2,6 +2,7 @@ import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import { z } from "zod";
 import type { EscrowAction } from "../escrowMachine";
 import { chatJson, LlmUnavailableError } from "../llm";
+import { looksLikePromptInjection } from "../promptInjection";
 import { ensureIndexed, searchClauses } from "../rag/agreementRag";
 import { verifyCitations } from "../rag/citations";
 import type { RetrievedClause, VerifiedCitation } from "../rag/citations";
@@ -238,7 +239,7 @@ async function assess(state: State): Promise<Partial<State>> {
 // proposal into "none" and records why.
 export function applyGuards(
   draft: { proposedAction: string; citations: { clauseId: string; quote: string }[] },
-  context: Pick<AgentContext, "allowedActions" | "evidence">,
+  context: Pick<AgentContext, "allowedActions" | "evidence"> & { agreementText?: string },
   clauses: RetrievedClause[]
 ) {
   const { verified, rejected } = verifyCitations(draft.citations, clauses);
@@ -250,6 +251,13 @@ export function applyGuards(
       blockedBy = `'${action}' is not an action an agent may propose.`;
     } else if (!context.allowedActions.includes(action as EscrowAction)) {
       blockedBy = `The escrow rules don't allow '${action}' for this person right now.`;
+    } else if (
+      looksLikePromptInjection(
+        context.agreementText,
+        ...context.evidence.map((item) => item.description)
+      )
+    ) {
+      blockedBy = "The agreement or evidence appears to give instructions to the AI, so a person should review it.";
     } else if (verified.length === 0) {
       blockedBy = "The proposal has no citation that matches the agreement.";
     } else if (action === "release" && context.evidence.length === 0) {

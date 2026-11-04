@@ -54,6 +54,9 @@ export function EscrowDetail({ escrow, onBack, onChange, onRefresh }: Props) {
           <section className="panel">
             <p className="eyebrow">AGREEMENT</p>
             <p className="agreement-text">{escrow.agreementText || "No agreement text was provided."}</p>
+            <p className="disclaimer hash">
+              Fingerprint for the smart contract: <code>{escrow.agreementHash}</code>
+            </p>
           </section>
 
           {escrow.evidence.length > 0 && (

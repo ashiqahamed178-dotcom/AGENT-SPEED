@@ -60,6 +60,15 @@ describe("AgentSpend Escrow Engine", () => {
     expect(released.body.events[4].actor).toBe("Test Buyer");
   });
 
+  it("gives the agreement the same fingerprint the smart contract uses", async () => {
+    const escrow = await createEscrow(buyer, seller, "hello");
+
+    // The published keccak256 value of the text "hello".
+    expect(escrow.agreementHash).toBe(
+      "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"
+    );
+  });
+
   it("requires a login", async () => {
     const response = await request(app).get("/api/escrows");
     expect(response.status).toBe(401);
