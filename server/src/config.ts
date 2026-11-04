@@ -11,16 +11,29 @@ const EnvSchema = z.object({
   // PGlite, a real PostgreSQL engine embedded in the process.
   DATABASE_URL: z.string().min(1).optional(),
   JWT_SECRET: z.string().min(32).optional(),
-  OLLAMA_URL: z.string().url().default("http://127.0.0.1:11434"),
-  OLLAMA_MODEL: z.string().min(1).default("llama3.2:3b")
+  // "ollama" runs on this computer. "cloud" is any OpenAI-compatible API.
+  LLM_PROVIDER: z.enum(["ollama", "cloud"]).default("ollama"),
+  LLM_BASE_URL: z.string().url().optional(),
+  LLM_API_KEY: z.string().min(1).optional(),
+  LLM_MODEL: z.string().min(1).optional(),
+  EMBEDDING_MODEL: z.string().min(1).optional(),
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(180_000)
 });
 
-const env = EnvSchema.parse({
-  ...process.env,
-  // An empty value in .env means "not set".
-  DATABASE_URL: process.env.DATABASE_URL || undefined,
-  JWT_SECRET: process.env.JWT_SECRET || undefined
-});
+// An empty value in .env means "not set".
+const env = EnvSchema.parse(
+  Object.fromEntries(Object.entries(process.env).map(([key, value]) => [key, value || undefined]))
+);
+
+if (env.LLM_PROVIDER === "cloud") {
+  const missing = (["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "EMBEDDING_MODEL"] as const).filter(
+    (name) => !env[name]
+  );
+
+  if (missing.length > 0) {
+    throw new Error(`LLM_PROVIDER=cloud also requires: ${missing.join(", ")}`);
+  }
+}
 
 const isProduction = env.NODE_ENV === "production";
 
@@ -41,6 +54,14 @@ export const config = {
   // Outside production a missing secret gets a random one, so nobody can rely
   // on a default secret. Sessions then end when the server restarts.
   jwtSecret: env.JWT_SECRET ?? randomBytes(48).toString("hex"),
-  ollamaUrl: env.OLLAMA_URL,
-  ollamaModel: env.OLLAMA_MODEL
+  llm: {
+    provider: env.LLM_PROVIDER,
+    baseUrl: (env.LLM_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, ""),
+    apiKey: env.LLM_API_KEY ?? "",
+    model: env.LLM_MODEL ?? "llama3.2:3b",
+    embeddingModel: env.EMBEDDING_MODEL ?? "nomic-embed-text",
+    // Stored vectors have one fixed size, so every embedding model must match it.
+    embeddingDimensions: 768,
+    timeoutMs: env.LLM_TIMEOUT_MS
+  }
 };

@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { config } from "./config";
+import { activeModel, chatJson, LlmUnavailableError } from "./llm";
 
 export const AnalysisSchema = z.object({
   summary: z.string(),
@@ -23,63 +23,63 @@ export type AnalysisResult =
   | { ok: true; model: string; analysis: Analysis }
   | { ok: false; error: string; details?: unknown };
 
+const analysisJsonSchema = z.toJSONSchema(AnalysisSchema, { io: "input" }) as Record<string, unknown>;
+
+// Models sometimes return a bad reply, so each analysis gets one more try. A
+// reply that still fails validation is reported and never shown as a result.
+const MAX_ATTEMPTS = 2;
+
 export async function runAnalysis(
   systemPrompt: string,
   userContent: string
 ): Promise<AnalysisResult> {
-  let content: string | undefined;
+  let failure: AnalysisResult = { ok: false, error: "The AI returned an empty response." };
 
-  try {
-    const response = await fetch(`${config.ollamaUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: config.ollamaModel,
-        stream: false,
-        format: "json",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent }
-        ]
-      })
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    let content: string | undefined;
 
-    if (!response.ok) {
-      console.error("Ollama error:", await response.text());
-      return { ok: false, error: "Local AI model request failed. Check that Ollama is running." };
+    try {
+      content = await chatJson({
+        system: systemPrompt,
+        user: userContent,
+        jsonSchema: analysisJsonSchema
+      });
+    } catch (error) {
+      if (error instanceof LlmUnavailableError) {
+        return { ok: false, error: error.message };
+      }
+      throw error;
     }
 
-    const result = (await response.json()) as { message?: { content?: string } };
-    content = result.message?.content;
-  } catch (error) {
-    console.error("Ollama connection error:", error);
-    return { ok: false, error: "Cannot connect to Ollama. Make sure the local Ollama service is running." };
-  }
+    if (!content) {
+      failure = { ok: false, error: "The AI returned an empty response." };
+      continue;
+    }
 
-  if (!content) {
-    return { ok: false, error: "The AI returned an empty response." };
-  }
+    let aiData: unknown;
 
-  let aiData: unknown;
+    try {
+      aiData = JSON.parse(content);
+    } catch {
+      failure = { ok: false, error: "The AI returned invalid JSON. Please retry." };
+      continue;
+    }
 
-  try {
-    aiData = JSON.parse(content);
-  } catch {
-    return { ok: false, error: "The AI returned invalid JSON. Please retry." };
-  }
+    const validated = AnalysisSchema.safeParse(aiData);
 
-  const validated = AnalysisSchema.safeParse(aiData);
+    if (validated.success) {
+      return { ok: true, model: activeModel().model, analysis: validated.data };
+    }
 
-  if (!validated.success) {
     console.error("Invalid AI response:", validated.error.flatten());
-    return {
+    failure = {
       ok: false,
       error: "The AI response did not match the expected format.",
       details: validated.error.flatten()
     };
   }
 
-  return { ok: true, model: config.ollamaModel, analysis: validated.data };
+  return failure;
 }
 
 export function sendAnalysisError(

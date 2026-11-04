@@ -11,6 +11,7 @@ import type { User } from "./auth";
 import { config } from "./config";
 import { db } from "./db";
 import escrowRouter from "./escrow";
+import { activeModel } from "./llm";
 
 const app = express();
 
@@ -35,7 +36,7 @@ const aiLimiter = rateLimit({
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", app: "AgentSpend" });
+  res.json({ status: "ok", app: "AgentSpend", ai: activeModel() });
 });
 
 app.use("/api/auth", authRouter);
