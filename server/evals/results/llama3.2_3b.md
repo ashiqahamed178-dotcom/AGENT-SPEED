@@ -1,7 +1,7 @@
 # AI evaluation results
 
 Model: `llama3.2:3b` (ollama), embeddings: `nomic-embed-text`
-Run: 2026-11-04T01:43:24.791Z, 20 labelled agreements
+Run: 2026-11-04T23:00:59.626Z, 20 labelled agreements
 
 | Measure | Score | Based on |
 |---|---|---|
@@ -14,11 +14,11 @@ Run: 2026-11-04T01:43:24.791Z, 20 labelled agreements
 | Prompt injection resistance | 100.0% | 3 attack cases |
 | Retrieval recall | 100.0% | 20 questions |
 | Answer accuracy | 95.0% | 20 answerable questions (0 wrong, 1 wrongly refused) |
-| Made-up answers | 15.4% | 13 unanswerable questions (lower is better) |
+| Made-up answers | 0.0% | 13 unanswerable questions (lower is better) |
 | Citations blocked by the verifier | 0 | All questions |
 | Failed AI calls | 0 | All calls |
-| Analysis time | median 35.6s, p95 46.3s | |
-| Question time | median 12.4s, p95 20.0s | |
+| Analysis time | median 34.6s, p95 42.8s | |
+| Question time | median 11.9s, p95 18.7s | |
 
 This is a small hand-labelled set. It compares versions of this system and shows
 failure types, but it doesn't prove how the system performs on all real agreements.

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../src/db";
 import { chunkAgreement } from "../src/rag/chunker";
-import { verifyCitations } from "../src/rag/citations";
+import { citationsCoverQuestion, verifyCitations } from "../src/rag/citations";
 import { createEscrow, createUser } from "./helpers";
 import type { Session } from "./helpers";
 
@@ -22,7 +22,7 @@ function fakeEmbedding(text: string): number[] {
   return vector;
 }
 
-function mockModel(reply: () => unknown, supportReply: unknown = { supports: true }) {
+function mockModel(reply: () => unknown) {
   const chatBodies: { messages: { content: string }[] }[] = [];
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
@@ -36,12 +36,9 @@ function mockModel(reply: () => unknown, supportReply: unknown = { supports: tru
     }
 
     chatBodies.push(body);
-    const isSupportCheck = String(body.messages[0].content).includes("citation checker");
     return {
       ok: true,
-      json: async () => ({
-        message: { content: JSON.stringify(isSupportCheck ? supportReply : reply()) }
-      })
+      json: async () => ({ message: { content: JSON.stringify(reply()) } })
     } as Response;
   });
 
@@ -50,6 +47,27 @@ function mockModel(reply: () => unknown, supportReply: unknown = { supports: tru
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("citationsCoverQuestion", () => {
+  it("matches different forms of the same word", () => {
+    expect(citationsCoverQuestion("How many pages must be translated?", ["Translate twelve pages."])).toBe(true);
+    expect(citationsCoverQuestion("When is it delivered?", ["Delivery is due in May."])).toBe(true);
+    expect(citationsCoverQuestion("Are fixes included?", ["The seller reviews a fix once."])).toBe(true);
+  });
+
+  it("rejects a clause about something else", () => {
+    expect(citationsCoverQuestion("Which country's law applies?", ["Seller: Northwind Web Ltd."])).toBe(false);
+    expect(citationsCoverQuestion("Who pays the bank transfer fees?", ["The buyer pays 500 USDC."])).toBe(false);
+  });
+
+  it("ignores words like buyer and payment, which appear in nearly every clause", () => {
+    expect(citationsCoverQuestion("Is the buyer's payment insured?", ["The buyer makes the payment."])).toBe(false);
+  });
+
+  it("doesn't block a question with no topic words", () => {
+    expect(citationsCoverQuestion("What is it?", ["Anything."])).toBe(true);
+  });
 });
 
 describe("chunkAgreement", () => {
@@ -179,33 +197,28 @@ describe("POST /api/escrows/:id/ask", () => {
     expect(response.body.rejectedCitations).toBe(1);
   });
 
-  it("refuses a real quote that doesn't support the answer", async () => {
+  it("refuses a real quote that has nothing to do with the question", async () => {
     const escrow = await createEscrow(buyer, seller, AGREEMENT);
-    const realQuoteWrongAnswer = () => ({
+    mockModel(() => ({
       answerable: true,
       answer: "German law applies.",
       citations: [{ clauseId: "C3", quote: "the buyer may request a full refund" }]
-    });
+    }));
 
-    for (const supportReply of [{ supports: false }, "not json", { unexpected: true }]) {
-      mockModel(realQuoteWrongAnswer, supportReply);
+    const response = await buyer
+      .post(`/api/escrows/${escrow.id}/ask`)
+      .send({ question: "Which country's law applies?" });
 
-      const response = await buyer
-        .post(`/api/escrows/${escrow.id}/ask`)
-        .send({ question: "Which country's law applies?" });
-
-      expect(response.status).toBe(200);
-      expect(response.body.answerable).toBe(false);
-      expect(response.body.answer).not.toContain("German");
-      expect(response.body.citations).toEqual([]);
-      expect(response.body.refusedBy).toBe("support_check");
-      vi.restoreAllMocks();
-    }
+    expect(response.status).toBe(200);
+    expect(response.body.answerable).toBe(false);
+    expect(response.body.answer).not.toContain("German");
+    expect(response.body.citations).toEqual([]);
+    expect(response.body.refusedBy).toBe("off_topic_citation");
   });
 
-  it("refuses an answer that admits it is guessing, without another model call", async () => {
+  it("refuses an answer that admits it is guessing", async () => {
     const escrow = await createEscrow(buyer, seller, AGREEMENT);
-    const chatBodies = mockModel(() => ({
+    mockModel(() => ({
       answerable: true,
       answer: "The law is not explicitly stated, but this implies the arbiter's country.",
       citations: [{ clauseId: "C3", quote: "the buyer may request a full refund" }]
@@ -217,7 +230,6 @@ describe("POST /api/escrows/:id/ask", () => {
 
     expect(response.body.answerable).toBe(false);
     expect(response.body.refusedBy).toBe("hedged_answer");
-    expect(chatBodies).toHaveLength(1);
   });
 
   it("refuses an answer with no citations", async () => {

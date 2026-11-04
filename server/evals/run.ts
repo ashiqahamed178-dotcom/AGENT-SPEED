@@ -16,6 +16,9 @@ import type { FieldOutcome, QuestionOutcome } from "./scoring";
 const limitFlag = process.argv.indexOf("--limit");
 const limit = limitFlag >= 0 ? Number(process.argv[limitFlag + 1]) : CASES.length;
 const cases = CASES.slice(0, limit);
+// A quick RAG check while developing. Its results aren't saved, so the published
+// files always come from a full run.
+const questionsOnly = process.argv.includes("--questions-only");
 
 const FIELDS = ["buyer", "seller", "amount", "deadline"] as const;
 
@@ -34,6 +37,7 @@ type CaseResult = {
     answerable?: boolean;
     rejectedCitations?: number;
     verifiedCitations?: number;
+    refusedBy?: string | null;
     score?: QuestionOutcome;
   }[];
 };
@@ -65,22 +69,26 @@ async function timed<T>(work: () => Promise<T>) {
 async function runCase(testCase: (typeof CASES)[number]): Promise<CaseResult> {
   // The model only sees the agreement and evidence. Structured fields are left
   // out, so it can't score points by copying values it was already given.
-  const analysis = await timed(() =>
-    analyzeTransaction({
-      currentStatus: testCase.status,
-      agreementText: testCase.agreementText,
-      evidence: testCase.evidence
-    })
-  );
+  const analysis = questionsOnly
+    ? null
+    : await timed(() =>
+        analyzeTransaction({
+          currentStatus: testCase.status,
+          agreementText: testCase.agreementText,
+          evidence: testCase.evidence
+        })
+      );
 
   const result: CaseResult = {
     id: testCase.id,
     tags: testCase.tags,
-    analysisSeconds: analysis.seconds,
+    analysisSeconds: analysis?.seconds ?? 0,
     questions: []
   };
 
-  if (analysis.value.ok) {
+  if (!analysis) {
+    // Skipped on purpose.
+  } else if (analysis.value.ok) {
     const { analysis: output } = analysis.value;
     result.fields = Object.fromEntries(
       FIELDS.map((field) => [
@@ -124,6 +132,7 @@ async function runCase(testCase: (typeof CASES)[number]): Promise<CaseResult> {
         answerable: value.answerable,
         rejectedCitations: value.rejectedCitations,
         verifiedCitations: value.citations.length,
+        refusedBy: value.refusedBy,
         score: scoreQuestion(question, {
           answerable: value.answerable,
           answer: value.answer,
@@ -276,7 +285,9 @@ async function main() {
       .map((field) => field.outcome)
       .join(",");
     const questionScore = result.questions
-      .map((question) => question.score?.outcome ?? "error")
+      .map((question) =>
+        [question.score?.outcome ?? "error", question.refusedBy].filter(Boolean).join(":")
+      )
       .join(",");
     console.log(
       `[${index + 1}/${cases.length}] ${testCase.id}: ${result.decision?.actual ?? result.analysisError} | ${fieldScore} | ${questionScore}`
@@ -284,6 +295,12 @@ async function main() {
   }
 
   const summary = summarize(results);
+
+  if (questionsOnly) {
+    console.log(JSON.stringify(summary.rag, null, 2));
+    return;
+  }
+
   const directory = join(process.cwd(), "evals", "results");
   const name = model.model.replace(/[^a-z0-9.-]+/gi, "_");
 

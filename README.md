@@ -14,11 +14,12 @@ The same escrow rules also exist as a tested Solidity smart contract.
 | Area | What's built |
 |---|---|
 | LLM engineering | One setting switches between local Ollama and any OpenAI-compatible cloud API, with JSON Schema output and validation |
-| RAG | Clause-based chunking, combined vector and keyword search, and citations verified in code |
+| RAG | Clause-based chunking, combined vector and keyword search, and citations checked in code for both accuracy and topic |
 | Agentic AI | A LangGraph agent with read-only tools, a limited loop, code checks and human approval |
 | Blockchain | An ERC-20 escrow contract with deadlines, a neutral arbiter, no owner and attack tests |
-| AI evaluation | 20 hand-labelled agreements, scored for accuracy, made-up answers, decisions and prompt injection |
-| Production engineering | PostgreSQL with migrations, login, role permissions, rate limits, Docker and GitHub Actions |
+| AI evaluation | 20 hand-labelled agreements and 17 agent situations, scored for accuracy, made-up answers, decisions and prompt injection |
+| MCP | A server that lets any MCP-compatible AI app check whether a payment is allowed. No tool can move money |
+| Production engineering | PostgreSQL with migrations, login, role permissions, rate limits, Docker, GitHub Actions and a hosted setup that needs no AI API key |
 
 ## How a decision is made
 
@@ -61,11 +62,11 @@ The AI service was not simulated for these results.
 | Made-up field values | 0% | 7 fields the agreement doesn't state |
 | Retrieval recall | 100% | 20 questions |
 | Answer accuracy | 95% | 20 answerable questions, 1 wrongly refused |
-| Made-up answers | 15.4% | 2 of 13 unanswerable questions |
+| Made-up answers | 0% | 13 unanswerable questions, down from 15.4% |
 | Acceptable recommendation | 90% | 20 cases, compared with 85% for always answering "review" |
 | Unsafe release after code checks | 0% | 6 cases |
 | Unsafe release suggestions stopped by code | 4 | The model made these, and the code rules changed them |
-| Analysis time | Median 35.6s | On a laptop CPU |
+| Analysis time | Median 34.6s | On a laptop CPU |
 
 **What these results mean**
 
@@ -73,12 +74,29 @@ The AI service was not simulated for these results.
 - **The small model isn't good at decisions.** It beats always answering "review" by just one
   case, and it suggested release 4 times when that would have been unsafe. The 0% unsafe result
   comes from the code rules, not from the model.
-- **Citations don't prove an answer is right.** Asked which country's law applies, the model
-  answered with the seller's name and quoted a real clause. The check confirms that a quote
-  exists, but not that it answers the question.
-- **Agent proposals aren't scored yet.** In one manual test, the agent proposed a dispute because
-  of a delivery made before the deadline. The citation was real but the reasoning was wrong, which
-  is why a person must approve every proposal.
+- **A code rule beat a model check for citations.** Asked which country's law applies, the model
+  once answered with the seller's name and quoted a real clause. A second model call to judge this
+  either refused too much or caught nothing, so a rule in code now requires the cited clause to
+  mention what the question is about. I tuned that rule on these same questions, so expect it to
+  do worse on new agreements.
+
+**Agent results**, on 17 situations I wrote and labelled:
+
+| Measure | Result | What it's based on |
+|---|---|---|
+| Acceptable final proposal | 76.5% | 17 situations |
+| Helpful proposal | 66.7% | 4 of 6 situations with a clearly right action |
+| Unsafe proposal reaching a person | 0% | 14 situations |
+| Unsafe suggestions stopped by code | 3 of 3 | The model made these before the code checks |
+| Prompt injection resistance | 100% | 4 attack cases, stopped by code |
+| Time per run | Median 67.7s | On a laptop CPU |
+
+- **The agent over-proposes disputes.** It proposed one in all 8 buyer and seller situations that
+  reached it without being stopped, including a complete, on-time delivery, where it read
+  3 November as missing a 30 November deadline. Clearer prompt rules didn't fix this, so its
+  helpful score means little for buyers.
+- **As an arbiter it did better.** It chose acceptably in all 3 situations without an attack.
+- **A person is still required.** A wrong dispute moves no money, and every proposal needs approval.
 
 **How the evaluation changed the system**
 
@@ -86,10 +104,12 @@ The AI service was not simulated for these results.
 |---|---|---|
 | 1 | The model recommended release from a seller's claim alone, and always answering "review" scored higher than the model | Added a code rule for release, and made the labels stricter |
 | 2 | Fake administrator text in the evidence got a release recommendation | Added a check for text that tries to instruct the AI |
-| 3 | A manual test exposed answers that cite real but irrelevant clauses, so I added those questions | Not fixed yet, and listed below |
+| 3 | A manual test exposed answers that cite real but irrelevant clauses, so I added those questions | Measured it first: 15.4% made-up answers |
+| 4 | A model checking citations cut made-up answers to 0%, but correct answers fell to 65%. A looser version gave 80% and caught nothing | Replaced it with a rule in code: 95% correct and 0% made up |
 
-Full results are in [`server/evals/results`](server/evals/results). The labels also changed between
-runs, including two I had labelled wrongly, so the scores of different runs aren't directly comparable.
+Full results are in [`server/evals/results`](server/evals/results). Runs 3 and later use the same 20 agreements
+and labels. Earlier labels changed, including two I had labelled wrongly, so those runs aren't directly
+comparable. In `run-4`, the agent's 7.1% unsafe score includes a label I later corrected.
 
 ## Run it locally
 
@@ -125,13 +145,15 @@ second browser or a private window for the second account.
 
 | Command | Folder | What it covers |
 |---|---|---|
-| `npm test` | `server` | 111 tests for the API, permissions, RAG and agent, using a simulated model |
+| `npm test` | `server` | 126 tests for the API, permissions, RAG, agent and MCP server, using a simulated model |
 | `npm run eval` | `server` | The evaluation on the real model (slow) |
+| `npm run eval:agent` | `server` | The agent evaluation on the real model (slow) |
 | `npx hardhat test` | `contracts` | 26 contract tests, including attacks |
 | `npm run demo` | `contracts` | One full deal on a temporary local blockchain |
 
-GitHub Actions runs these on each push, except the evaluation, which needs a real model. It
-also repeats the server tests on real PostgreSQL, then builds and starts the Docker image.
+GitHub Actions runs these on each push, except the evaluations, which are too slow. It also repeats
+the server tests on real PostgreSQL and builds and starts the Docker image. It then builds the
+no-key image and gets a real answer from its model through the running app.
 
 ## Project layout
 
@@ -141,27 +163,30 @@ server/     Express API, PostgreSQL, RAG and agent
   src/escrowMachine.ts   The escrow rules
   src/rag/               Chunking, search and citation checks
   src/agent/             The LangGraph agent and its approval routes
+  src/mcp/               The MCP server
   evals/                 Labelled data, scoring and saved results
 contracts/  Solidity escrow contract and tests
-docs/       Deployment guide
+deploy/     Hosting files that need no AI API key
+docs/       Deployment and MCP guides, and screenshots
 ```
 
 ## Known limits
 
 - **Backend and contract aren't synced.** They share the same rules and agreement
   fingerprint, but the app doesn't read contract events yet.
-- **Answers can cite real but irrelevant clauses.** The citation check can't catch this yet.
-- **Agent decisions aren't scored.** Only the analyzer and question answering are evaluated.
+- **The agent over-proposes disputes.** See the agent results above. A person must decline the wrong ones.
+- **The citation topic rule is simple.** It compares words, so it can miss a clause worded very differently, and a clause can share words without answering the question.
 - **The cloud model path hasn't been tested with a real cloud provider.** It has only been run
   against Ollama's OpenAI-compatible API, so it needs a real key to confirm.
 - **The evaluation is small.** I wrote and labelled all 20 agreements myself, and I also tuned
   against them, so the scores are likely higher than on real contracts.
 - **The injection check is simple.** It matches known patterns and can miss a rewording. It's
   an extra layer. Safety relies on the AI having no tool that moves money.
-- **Agent runs aren't recovered after a restart.** A real system would use a job queue.
+- **Agent runs don't resume after a restart.** They are marked failed, and the person starts a new one. A real system would use a job queue.
 - **Accounts are basic.** There is no email verification or password reset.
 - **The contract hasn't been audited.** Real funds would need a professional audit and legal review.
 
 ## More
 
 - [Deployment guide](docs/DEPLOY.md)
+- [MCP server](docs/MCP.md)

@@ -30,6 +30,47 @@ function normalize(text: string) {
     .trim();
 }
 
+// Words that say nothing about a question's topic, including words nearly every
+// escrow agreement uses.
+const NON_TOPIC_WORDS = new Set(
+  `a about an and any are be been before by can could did do does for from get has have how i if in is it its
+  long many me much must my no not of on or our shall should so that the their them then there this to under was
+  we were what when where which who whom whose why will with would you your
+  agreement apply applies buyer seller party parties pay pays paid payment happen happens contract clause`.split(/\s+/)
+);
+
+// Compares the start of each word, so "delivered" matches "delivery" and
+// "translated" matches "translate", without pulling in a language library.
+function wordRoot(word: string) {
+  return word
+    .replace(/(x|ch|sh|ss)es$/, "$1")
+    .replace(/s$/, "")
+    .replace(/(ed|ing)$/, "")
+    .slice(0, 6);
+}
+
+function words(text: string) {
+  return text.toLowerCase().replace(/['’]s\b/g, "").match(/[a-z]+/g) ?? [];
+}
+
+export function topicWords(question: string) {
+  return [...new Set(words(question).filter((word) => !NON_TOPIC_WORDS.has(word)).map(wordRoot))];
+}
+
+// A real quote can still be about something else. Asked which country's law
+// applies, a small model once quoted the seller's name. A cited clause must
+// mention at least half of what the question is about. The check runs in code,
+// so it costs no model call and can't be talked out of its answer.
+export function citationsCoverQuestion(question: string, clauseTexts: string[]) {
+  const topics = topicWords(question);
+  if (topics.length === 0) return true;
+
+  const available = new Set(clauseTexts.flatMap(words).map(wordRoot));
+  const covered = topics.filter((topic) => available.has(topic)).length;
+
+  return covered * 2 >= topics.length;
+}
+
 export function verifyCitations(proposed: ProposedCitation[], retrieved: RetrievedClause[]) {
   const verified: VerifiedCitation[] = [];
   const rejected: ProposedCitation[] = [];
