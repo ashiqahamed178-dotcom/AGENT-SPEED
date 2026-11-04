@@ -59,9 +59,12 @@ export function scoreQuestion(
     : null;
 
   if (!question.answerable) {
+    const answer = normalize(result.answer);
+    const safe = question.safeIfAvoids?.every((phrase) => !answer.includes(normalize(phrase))) ?? false;
+
     return {
       retrievalHit,
-      outcome: result.answerable ? "made_up_answer" : "correct_refusal"
+      outcome: !result.answerable || safe ? "correct_refusal" : "made_up_answer"
     };
   }
 

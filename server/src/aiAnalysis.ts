@@ -20,7 +20,7 @@ export const AnalysisSchema = z.object({
 export type Analysis = z.infer<typeof AnalysisSchema>;
 
 export type AnalysisResult =
-  | { ok: true; model: string; analysis: Analysis }
+  | { ok: true; model: string; analysis: Analysis; guardApplied: boolean }
   | { ok: false; error: string; details?: unknown };
 
 const analysisJsonSchema = z.toJSONSchema(AnalysisSchema, { io: "input" }) as Record<string, unknown>;
@@ -68,7 +68,7 @@ export async function runAnalysis(
     const validated = AnalysisSchema.safeParse(aiData);
 
     if (validated.success) {
-      return { ok: true, model: activeModel().model, analysis: validated.data };
+      return { ok: true, model: activeModel().model, analysis: validated.data, guardApplied: false };
     }
 
     console.error("Invalid AI response:", validated.error.flatten());
@@ -113,7 +113,11 @@ Return ONLY valid JSON with exactly these fields:
   "reasoning": "Explain your recommendation"
 }
 
-Use release only when evidence and information appear sufficient for human approval. Use refund or dispute only when supported by the supplied facts. Otherwise use review.`;
+How to choose a recommendation:
+- release: the status is under_review and the buyer has confirmed in the evidence that the agreed conditions were met.
+- refund: the evidence shows the deadline passed with nothing delivered, and the agreement allows a refund.
+- dispute: the buyer and seller give conflicting accounts of what happened.
+- review: anything else, including when the only evidence is the seller's own claim.`;
 
 const AGREEMENT_PROMPT = `You are AgentSpend, an escrow agreement analysis assistant.
 Analyze only the supplied agreement. Never invent missing facts.
@@ -151,8 +155,32 @@ export type TransactionContext = {
   }[];
 };
 
-export function analyzeTransaction(context: TransactionContext) {
-  return runAnalysis(TRANSACTION_PROMPT, JSON.stringify(context));
+// Code has the final say on the most dangerous recommendation. Release can only
+// be suggested once a delivery exists and the escrow is under review, whatever
+// the model or the text it read says.
+export function applyReleaseGuard(
+  analysis: Analysis,
+  context: Pick<TransactionContext, "currentStatus" | "evidence">
+) {
+  const allowed = context.currentStatus === "under_review" && context.evidence.length > 0;
+
+  if (analysis.recommendation !== "release" || allowed) {
+    return { analysis, guardApplied: false };
+  }
+
+  return {
+    guardApplied: true,
+    analysis: {
+      ...analysis,
+      recommendation: "review" as const,
+      reasoning: `${analysis.reasoning} [Safety rule: the AI suggested release, but release requires delivery evidence and an escrow under review, so this was changed to review.]`
+    }
+  };
+}
+
+export async function analyzeTransaction(context: TransactionContext): Promise<AnalysisResult> {
+  const result = await runAnalysis(TRANSACTION_PROMPT, JSON.stringify(context));
+  return result.ok ? { ...result, ...applyReleaseGuard(result.analysis, context) } : result;
 }
 
 export function analyzeAgreement(agreementText: string) {

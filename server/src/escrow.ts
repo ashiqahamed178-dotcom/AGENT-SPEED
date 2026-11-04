@@ -346,6 +346,7 @@ router.post("/:id/analyze", async (req, res) => {
       evidenceCount: escrow.evidence.length
     },
     analysis: result.analysis,
+    safetyRuleApplied: result.guardApplied,
     disclaimer:
       "AI-generated advisory analysis only. Submitted evidence and URLs have not necessarily been independently verified. This endpoint does not change escrow status or authorize or execute payments."
   });

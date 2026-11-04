@@ -1,12 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-
-export type User = {
-  id: string;
-  email: string;
-  name: string;
-  role: "user" | "arbiter";
-};
+import type { User } from "./api";
 
 export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -96,19 +90,19 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
           />
         </label>
 
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="primary" disabled={busy}>
           {busy ? "Please wait..." : isRegister ? "Create account" : "Log in"}
         </button>
 
         {error && (
-          <p className="notice error-notice" role="alert">
+          <p className="notice error" role="alert">
             {error}
           </p>
         )}
 
         <button
           type="button"
-          className="link-button"
+          className="text-button"
           onClick={() => {
             setMode(isRegister ? "login" : "register");
             setError("");

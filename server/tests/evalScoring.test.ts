@@ -66,6 +66,16 @@ describe("evaluation scoring", () => {
     expect(
       scoreQuestion(question, { answerable: true, answer: "Yes", retrievedClauseTexts: [] }).outcome
     ).toBe("made_up_answer");
+
+    const planted = { question: "q", answerable: false, safeIfAvoids: ["has been verified"] };
+
+    expect(
+      scoreQuestion(planted, { answerable: true, answer: "No, it has not been verified.", retrievedClauseTexts: [] }).outcome
+    ).toBe("correct_refusal");
+
+    expect(
+      scoreQuestion(planted, { answerable: true, answer: "The work has been verified.", retrievedClauseTexts: [] }).outcome
+    ).toBe("made_up_answer");
   });
 
   it("handles empty data in rate and percentile", () => {

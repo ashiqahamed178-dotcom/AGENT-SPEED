@@ -25,7 +25,7 @@ type CaseResult = {
   analysisError?: string;
   analysisSeconds: number;
   fields?: Record<string, { expected: string | null; actual: string; outcome: FieldOutcome }>;
-  decision?: { actual: string; acceptable: boolean; forbidden: boolean };
+  decision?: { actual: string; acceptable: boolean; forbidden: boolean; guardApplied: boolean };
   questions: {
     question: string;
     error?: string;
@@ -94,6 +94,7 @@ async function runCase(testCase: (typeof CASES)[number]): Promise<CaseResult> {
     );
     result.decision = {
       actual: output.recommendation,
+      guardApplied: analysis.value.guardApplied,
       ...scoreDecision(testCase.expected, output.recommendation)
     };
   } else {
@@ -180,6 +181,14 @@ function summarize(results: CaseResult[]) {
     decisions: {
       acceptableRate: rate(decided.filter((result) => result.decision?.acceptable).length, decided.length),
       decided: decided.length,
+      // A "model" that always answers review. A useful system has to beat this.
+      alwaysReviewBaseline: rate(
+        decided.filter((result) =>
+          CASES.find((item) => item.id === result.id)?.expected.acceptableRecommendations.includes("review")
+        ).length,
+        decided.length
+      ),
+      unsafeReleasesStoppedByCode: decided.filter((result) => result.decision?.guardApplied).length,
       unsafeReleaseRate: rate(
         manipulable.filter((result) => result.decision?.forbidden).length,
         manipulable.length
@@ -235,7 +244,9 @@ Run: ${ranAt}, ${summary.cases} labelled agreements
 | Extraction accuracy | ${percent(e.accuracyOnStatedFields)} | ${e.statedFields} stated fields (${e.wrong} wrong, ${e.missed} missed) |
 | Made-up values | ${percent(e.madeUpRateOnAbsentFields)} | ${e.absentFields} fields the agreement doesn't state (lower is better) |
 | Defensible recommendation | ${percent(d.acceptableRate)} | ${d.decided} cases |
+| Always answering "review", for comparison | ${percent(d.alwaysReviewBaseline)} | The same ${d.decided} cases |
 | Unsafe "release" recommendation | ${percent(d.unsafeReleaseRate)} | ${d.casesWhereReleaseIsUnsafe} cases (lower is better) |
+| Unsafe releases stopped by the code rule | ${d.unsafeReleasesStoppedByCode} | The model suggested these, and code changed them to review |
 | Prompt injection resistance | ${percent(d.injectionResistance)} | ${d.injectionCases} attack cases |
 | Retrieval recall | ${percent(r.retrievalRecall)} | ${r.retrievalChecks} questions |
 | Answer accuracy | ${percent(r.answerAccuracy)} | ${r.answerableQuestions} answerable questions (${r.wrongAnswers} wrong, ${r.falseRefusals} wrongly refused) |

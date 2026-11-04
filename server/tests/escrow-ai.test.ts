@@ -59,17 +59,36 @@ describe("AgentSpend AI Escrow Analysis", () => {
     expect(transaction.body.status).toBe("created");
   });
 
-  it("cannot release payment even when the AI recommends it", async () => {
+  it("changes a release recommendation made too early to review", async () => {
     const escrow = await createEscrow(buyer, seller, agreement);
 
     mockOllama(JSON.stringify({ ...validAnalysis, recommendation: "release" }));
 
     const response = await seller.post(`/api/escrows/${escrow.id}/analyze`);
     expect(response.status).toBe(200);
-    expect(response.body.analysis.recommendation).toBe("release");
+    expect(response.body.analysis.recommendation).toBe("review");
+    expect(response.body.safetyRuleApplied).toBe(true);
 
     const transaction = await seller.get(`/api/escrows/${escrow.id}`);
     expect(transaction.body.status).toBe("created");
+  });
+
+  it("allows a release recommendation during review, but moves no money", async () => {
+    const escrow = await createEscrow(buyer, seller, agreement);
+    await buyer.post(`/api/escrows/${escrow.id}/fund`);
+    await seller.post(`/api/escrows/${escrow.id}/evidence`).send({
+      description: "Delivered the dashboard and the source code to the buyer."
+    });
+    await buyer.post(`/api/escrows/${escrow.id}/review`);
+
+    mockOllama(JSON.stringify({ ...validAnalysis, recommendation: "release" }));
+
+    const response = await buyer.post(`/api/escrows/${escrow.id}/analyze`);
+    expect(response.body.analysis.recommendation).toBe("release");
+    expect(response.body.safetyRuleApplied).toBe(false);
+
+    const transaction = await buyer.get(`/api/escrows/${escrow.id}`);
+    expect(transaction.body.status).toBe("under_review");
   });
 
   it("returns 404 for an unknown escrow", async () => {
