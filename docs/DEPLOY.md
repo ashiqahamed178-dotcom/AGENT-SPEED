@@ -5,28 +5,59 @@ password into a chat, a commit, or the README. Put them only in the place each s
 
 Free plans and model names change, so check each site's current details.
 
-There are two ways to go live:
+The project doesn't need to be hosted. It can run on your computer with a local model and a
+Neon database, at no cost, and a demo video can show it working. There are three ways to run it:
 
-- **No AI API key (recommended):** Hugging Face runs the app and a small model together. Follow
-  steps 1 and A, then 4 and 5. It's slow, because the model shares a few processors.
-- **Cloud AI model:** Render runs the app and Gemini runs the model, which is much faster. It
-  needs a Gemini API key. Follow steps 1 to 5.
+- **On your computer, free:** follow step 1, then steps 4 and 5 if you need an arbiter or the
+  contract on the test network.
+- **Online, on Hugging Face:** the app and a small model run together, with no AI API key. It
+  **needs a paid Hugging Face plan** and it's slow, because the model shares a few processors.
+  Follow steps 1 and A, then 4 and 5.
+- **Online, on Render with Gemini:** a much faster model that needs a Gemini API key. Check each
+  site's current free limits first. Follow steps 1 to 5.
 
 ## 1. Database: Neon
 
 1. Create a free account and project at [neon.com](https://neon.com).
-2. Copy the connection string. It looks like `postgresql://...neon.tech/...?sslmode=require`.
+2. In the repository root, link the project and pull its connection strings into `.env.local`,
+   which Git ignores:
+
+```bash
+neon init -y --org-id YOUR-ORG-ID --project-id YOUR-PROJECT-ID --branch production --services postgres
+```
+
+```bash
+neon deploy
+```
+
+3. To run the app on Neon on your computer, use one of these in the `server` folder:
+
+```bash
+npm run dev:neon
+```
+
+```bash
+npm run build && npm run start:neon
+```
+
+Plain `npm run dev` stays on the embedded local database, so everyday work can't touch live data.
 
 The app creates its own tables and turns on `pgvector` the first time it starts.
 
-## A. Hosting without an API key: Hugging Face Spaces
+For a hosted app, copy the connection string from the Neon console. It looks like
+`postgresql://...neon.tech/...?sslmode=require`.
 
-GitHub Actions builds this image and asks a real question through it on each push, so the setup
-is tested. It hasn't been run on Hugging Face itself until you do this.
+## A. Hosting without an API key: Hugging Face Spaces (paid plan)
+
+Hugging Face [requires a paid plan](https://huggingface.co/docs/hub/spaces-overview) to create a
+Docker Space, even on the CPU hardware with no hourly cost. Check its current pricing first.
+
+GitHub Actions builds this image and asks a real question through it on each push, so the image
+is tested. It has never been run on Hugging Face itself.
 
 1. Merge this branch into `main`. The image is built from `main` on GitHub.
-2. Create a free account at [huggingface.co](https://huggingface.co).
-3. Choose **New Space**, then **Docker** and **Blank**, with the free CPU hardware. Keep it public.
+2. Create an account at [huggingface.co](https://huggingface.co) with a plan that allows Docker Spaces.
+3. Choose **New Space**, then **Docker** and **Blank**, with the CPU Basic hardware. Keep it public.
 4. In the Space's **Files** tab, add two files, copying the contents from this repository:
    - [`deploy/huggingface/README.md`](../deploy/huggingface/README.md), replacing the existing `README.md`
    - [`deploy/huggingface/Dockerfile`](../deploy/huggingface/Dockerfile), named `Dockerfile`
@@ -73,19 +104,15 @@ about a minute. Open it yourself before showing it to anyone.
 
 Disputes need an arbiter, and no web page can grant that role, on purpose.
 
-1. Register an account for the arbiter in the live app.
-2. On your computer, temporarily set `DATABASE_URL` in `server/.env` to the Neon string.
-3. Run this, using that account's email:
+1. Register an account for the arbiter in the app.
+2. On your computer, run this in the `server` folder, using that account's email. It reads the
+   Neon string from `.env.local`, so it needs step 1's link:
 
 ```bash
-cd server
-npm run make-arbiter -- arbiter@example.com
+npx tsx --env-file=../.env.local src/scripts/makeArbiter.ts arbiter@example.com
 ```
 
-4. Remove `DATABASE_URL` from `server/.env`, so local development can't touch live data.
-
-To grant the role on the Hugging Face version, use the same steps. The app and the command share
-the Neon database.
+This works wherever the app runs, because the app and the command share the Neon database.
 
 ## 5. Smart contract: Base Sepolia test network
 

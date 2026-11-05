@@ -19,7 +19,7 @@ The same escrow rules also exist as a tested Solidity smart contract.
 | Blockchain | An ERC-20 escrow contract with deadlines, a neutral arbiter, no owner and attack tests |
 | AI evaluation | 20 hand-labelled agreements and 17 agent situations, scored for accuracy, made-up answers, decisions and prompt injection |
 | MCP | A server that lets any MCP-compatible AI app check whether a payment is allowed. No tool can move money |
-| Production engineering | PostgreSQL with migrations, login, role permissions, rate limits, Docker, GitHub Actions and a hosted setup that needs no AI API key |
+| Production engineering | PostgreSQL with migrations, login, role permissions, rate limits, Docker and GitHub Actions. Tested on a Neon database, with a container image that runs its own model and needs no AI API key |
 
 ## How a decision is made
 
@@ -140,6 +140,9 @@ npm run dev
 
 To try the full flow, register two accounts, one as the buyer and one as the seller. Use a
 second browser or a private window for the second account.
+
+This uses an embedded local database. To use a Neon database, see the
+[deployment guide](docs/DEPLOY.md).
 
 ## Tests
 

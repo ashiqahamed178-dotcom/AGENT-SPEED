@@ -10,6 +10,8 @@
     "make-arbiter": "tsx src/scripts/makeArbiter.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "dev:neon": "tsx watch --env-file=../.env.local src/index.ts",
+    "start:neon": "node --env-file=../.env.local dist/index.js",
     "eval": "tsx evals/run.ts",
     "eval:agent": "tsx evals/runAgent.ts",
     "mcp": "tsx src/mcp/server.ts"
