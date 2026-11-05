@@ -38,6 +38,35 @@ flowchart LR
 The model has no tool that changes anything. Even if an agreement fools it, it can only
 produce a proposal, and that proposal still has to pass code checks and a person's approval.
 
+## Screenshots
+
+Taken from the running app with the local `llama3.2:3b` model on 5 November 2026. Results aren't
+edited, including the wrong ones.
+
+**A buyer's escrows.** The footer shows the AI model in use.
+
+![Escrow list](docs/screenshots/1-escrows.png)
+
+**Answers with checked sources.** Code confirms the quoted clause really appears in the agreement.
+
+<img src="docs/screenshots/2-cited-answer.png" alt="An answer citing clause C4" width="560">
+
+**A prompt injection attack, stopped by code.** The seller hid a fake administrator message in the
+delivery notes. The model was fooled and argued for releasing payment, but a code check changed
+the proposal to No action.
+
+<img src="docs/screenshots/4-attack-blocked.png" alt="The safety check changing the proposal to No action" width="560">
+
+**Why a person must approve.** For a complete, on-time delivery, the model proposed a dispute,
+claiming that 3 November missed a 30 November deadline. The citations are real, but the
+reasoning is wrong. Nothing happens unless the buyer approves, so the buyer declines it.
+
+<img src="docs/screenshots/3-agent-proposal.png" alt="A wrong dispute proposal waiting for approval" width="560">
+
+**The audit trail.** Every step is recorded, and a database rule rejects changes to it.
+
+<img src="docs/screenshots/5-audit-trail.png" alt="The escrow's audit trail" width="560">
+
 **Who can do what**
 
 | Action | Who | When |
